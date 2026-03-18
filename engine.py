@@ -114,7 +114,16 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
     metric_logger = MetricLogger(delimiter="  ")
     header = 'Test:'
 
+    # Debug: 检查数据加载器
+    print(f"[DEBUG] Evaluation dataloader length: {len(data_loader)}")
+    print(f"[DEBUG] Evaluation dataset size: {len(data_loader.dataset)}")
+
+    batch_count = 0
+    skipped_count = 0
+    processed_count = 0
+
     for (images, events, targets), indexes in metric_logger.log_every(data_loader, 10, header):
+        batch_count += 1
         images = images.to(device)
         events = events.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -127,8 +136,12 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
         outputs, _, status = model(events, targets=targets, pre_status=pre_status)
 
         if not check_empty_target(targets):
+            skipped_count += 1
+            if batch_count <= 5:  # 只打印前5次
+                print(f"[DEBUG] Batch {batch_count}: Skipping due to empty targets")
             continue
         else:
+            processed_count += 1
             targets = check_target(targets)
             orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
             results = postprocessor(outputs, orig_target_sizes)
@@ -141,6 +154,12 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
             res = {target['image_id'].item(): output for target, output in zip(targets, results)}
             if dvs_evaluator is not None:
                 dvs_evaluator.update(res)
+
+    # Debug: 打印统计
+    print(f"[DEBUG] Evaluation summary:")
+    print(f"[DEBUG]   Total batches: {batch_count}")
+    print(f"[DEBUG]   Skipped batches: {skipped_count}")
+    print(f"[DEBUG]   Processed batches: {processed_count}")
 
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)

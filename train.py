@@ -82,12 +82,28 @@ def main(args):
     dataset_train = build_dataset(mode='train', args=args)
     dataset_val = build_dataset(mode='val', args=args)
 
+    # Debug: 检查数据集大小
+    print(f"[DEBUG] Training dataset size: {len(dataset_train)}")
+    print(f"[DEBUG] Validation dataset size: {len(dataset_val)}")
+    if hasattr(dataset_val, 'cumulative_sizes'):
+        print(f"[DEBUG] Validation sub-datasets count: {len(dataset_val.datasets)}")
+        print(f"[DEBUG] First 5 sub-dataset sizes: {[len(ds) for ds in dataset_val.datasets[:5]]}")
+
     if args.distributed:
         sampler_train = samplers.DistributedSampler(dataset_train, args.batch_size)
-        sampler_val = samplers.DistributedSampler(dataset_val, args.batch_size)
+        sampler_val = samplers.DistributedSampler(dataset_val, args.batch_size_val)
     else:
         sampler_train = samplers.StreamingSampler(dataset_train, args.batch_size)
-        sampler_val = samplers.StreamingSampler(dataset_val, args.batch_size)
+        sampler_val = samplers.StreamingSampler(dataset_val, args.batch_size_val)
+
+    # Debug: 检查采样器
+    print(f"[DEBUG] Validation batch_size: {args.batch_size_val}")
+    print(f"[DEBUG] Validation sampler type: {type(sampler_val)}")
+    sampler_indices = list(sampler_val)
+    print(f"[DEBUG] Sampler generated {len(sampler_indices)} indices")
+    if len(sampler_indices) > 0:
+        print(f"[DEBUG] First 10 indices: {sampler_indices[:10]}")
+        print(f"[DEBUG] Last 10 indices: {sampler_indices[-10:]}")
 
     data_loader_train = DataLoader(dataset_train, args.batch_size, sampler=sampler_train, drop_last=True,
                                    num_workers=args.num_workers, pin_memory=True,
