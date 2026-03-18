@@ -16,7 +16,13 @@ class ConcatDatasetCustom(ConcatDataset):
             idx = len(self) + idx
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
 
-        return self.datasets[dataset_idx][idx], (dataset_idx, idx)
+        # 计算子数据集内的相对索引
+        if dataset_idx == 0:
+            sample_idx = idx
+        else:
+            sample_idx = idx - self.cumulative_sizes[dataset_idx - 1]
+
+        return self.datasets[dataset_idx][sample_idx], (dataset_idx, idx)
 
 
 def build_dataset(mode, args, seq_scene, seq_id):

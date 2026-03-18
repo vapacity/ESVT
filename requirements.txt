@@ -1,0 +1,18 @@
+# PyTorch and related packages
+torch
+torchvision
+tensorboard
+
+# Computer Vision and Image Processing
+opencv-python
+Pillow
+numpy<2.0  # NumPy 2.x causes compatibility issues with PyTorch compiled binaries
+
+# COCO evaluation tools
+pycocotools
+
+# Scientific computing
+scipy
+
+# Data serialization
+json5

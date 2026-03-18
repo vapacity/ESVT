@@ -3,9 +3,16 @@ import torch
 import torch.nn as nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
 from typing import Any, Callable, Dict, List, Tuple, Type, Union, cast, Sequence
-from dataset.UAV_EOD.function import convert_to_tv_tensor, _boxes_keys, BoundingBoxes, _parse_labels_getter
+from dataset.UAV_EOD.function import convert_to_tv_tensor, _boxes_keys, _parse_labels_getter
 import torchvision
 from torchvision import tv_tensors
+import importlib.metadata
+
+# Import BoundingBoxes based on torchvision version
+if importlib.metadata.version('torchvision') >= '0.17':
+    from torchvision.tv_tensors import BoundingBoxes
+else:
+    BoundingBoxes = tv_tensors.BoundingBoxes
 from torchvision.ops.boxes import box_iou
 from torchvision.transforms.v2 import functional as F
 from torchvision.transforms.v2.functional._utils import _get_kernel

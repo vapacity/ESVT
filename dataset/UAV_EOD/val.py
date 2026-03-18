@@ -35,17 +35,26 @@ class DVSEvaluator(object):
 
     def synchronize_between_processes(self):
         for iou_type in self.iou_types:
-            self.eval_imgs[iou_type] = np.concatenate(self.eval_imgs[iou_type], 2)
-            create_common_coco_eval(self.coco_eval[iou_type], self.img_ids, self.eval_imgs[iou_type])
+            if len(self.eval_imgs[iou_type]) > 0:
+                self.eval_imgs[iou_type] = np.concatenate(self.eval_imgs[iou_type], 2)
+                create_common_coco_eval(self.coco_eval[iou_type], self.img_ids, self.eval_imgs[iou_type])
+            else:
+                print(f"Warning: No evaluation images for iou_type '{iou_type}'. Skipping evaluation.")
 
     def accumulate(self):
-        for coco_eval in self.coco_eval.values():
-            coco_eval.accumulate()
+        for iou_type, coco_eval in self.coco_eval.items():
+            if len(self.eval_imgs[iou_type]) > 0:
+                coco_eval.accumulate()
+            else:
+                print(f"Warning: Skipping accumulate for iou_type '{iou_type}' due to no evaluation data.")
 
     def summarize(self):
         for iou_type, coco_eval in self.coco_eval.items():
-            print("IoU metric: {}".format(iou_type))
-            coco_eval.summarize()
+            if len(self.eval_imgs[iou_type]) > 0:
+                print("IoU metric: {}".format(iou_type))
+                coco_eval.summarize()
+            else:
+                print(f"Warning: Skipping summarize for iou_type '{iou_type}' due to no evaluation data.")
 
     def prepare(self, predictions, iou_type):
         if iou_type == "bbox":

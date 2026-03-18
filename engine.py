@@ -154,9 +154,9 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
     stats = {}
 
     if dvs_evaluator is not None:
-        if 'bbox' in iou_types:
+        if 'bbox' in iou_types and len(dvs_evaluator.eval_imgs.get('bbox', [])) > 0:
             stats['coco_eval_bbox'] = dvs_evaluator.coco_eval['bbox'].stats.tolist()
-        if 'segm' in iou_types:
+        if 'segm' in iou_types and len(dvs_evaluator.eval_imgs.get('segm', [])) > 0:
             stats['coco_eval_masks'] = dvs_evaluator.coco_eval['segm'].stats.tolist()
 
     return stats, dvs_evaluator

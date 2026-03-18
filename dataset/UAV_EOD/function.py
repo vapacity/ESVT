@@ -6,22 +6,37 @@ from torchvision.transforms.v2._utils import is_pure_tensor
 from contextlib import suppress
 import collections.abc
 
+# Try to import BoundingBoxes and related classes from different locations
+# based on torchvision version
+BoundingBoxes = None
+BoundingBoxFormat = None
+Mask = None
+Image = None
+Video = None
+_boxes_keys = None
 
-if importlib.metadata.version('torchvision') == '0.15.2':
-    import torchvision
-    torchvision.disable_beta_transforms_warning()
-    _boxes_keys = ['format', 'spatial_size']
-elif '0.17' > importlib.metadata.version('torchvision') >= '0.16':
-    import torchvision
-    torchvision.disable_beta_transforms_warning()
+try:
+    # torchvision >= 0.17
+    from torchvision.tv_tensors import BoundingBoxes, BoundingBoxFormat, Mask, Image, Video
     _boxes_keys = ['format', 'canvas_size']
-elif importlib.metadata.version('torchvision') >= '0.17':
-    import torchvision
-    from torchvision.tv_tensors import (BoundingBoxes, BoundingBoxFormat, Mask, Image, Video)
-    _boxes_keys = ['format', 'canvas_size']
-
-else:
-    raise RuntimeError('Please make sure torchvision version >= 0.15.2')
+except ImportError:
+    try:
+        # torchvision 0.16.x
+        from torchvision.datapoints import BoundingBoxes, BoundingBoxFormat, Mask, Image, Video
+        _boxes_keys = ['format', 'canvas_size']
+    except ImportError:
+        try:
+            # torchvision 0.15.x prototype
+            import torchvision
+            if hasattr(torchvision, 'disable_beta_transforms_warning'):
+                torchvision.disable_beta_transforms_warning()
+            from torchvision.prototype.datapoints import BoundingBoxes, BoundingBoxFormat, Mask, Image, Video
+            _boxes_keys = ['format', 'spatial_size']
+        except ImportError:
+            raise RuntimeError(
+                'Could not import BoundingBoxes from torchvision. '
+                'Please make sure torchvision version >= 0.15.2'
+            )
 
 
 def convert_to_tv_tensor(tensor: Tensor, key: str, box_format='xyxy', spatial_size=None) -> Tensor:
