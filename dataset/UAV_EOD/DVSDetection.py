@@ -40,6 +40,10 @@ class DVSDetection(Dataset):
             target = {'image_id': idx, 'boxes': anno['boxes'], 'labels': anno['labels']}
             target = self.prepare(image, event, target)
         else:
+            # Debug: 记录缺失的标注文件
+            if not hasattr(self, '_warned_missing_anno'):
+                self._warned_missing_anno = True
+                print(f"[DEBUG] Missing annotation file: {anno_path}")
             target = {}
         image, event, target = self._transforms(image, event, target)
         return image, event, target

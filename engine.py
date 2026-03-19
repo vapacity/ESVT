@@ -9,7 +9,7 @@ from util.misc import dist_utils
 import math
 import sys
 from pathlib import Path
-from datetime import datetime
+import datetime
 from torch.utils.tensorboard import SummaryWriter
 import json
 from dataset.UAV_EOD.val import DVSEvaluator
@@ -232,7 +232,7 @@ class Detection(object):
 
     def state_dict(self):
         state = {}
-        state['date'] = datetime.now().isoformat()
+        state['date'] = datetime.datetime.now().isoformat()
         state['last_epoch'] = self.last_epoch
         for k, v in self.__dict__.items():
             if hasattr(v, 'state_dict'):
