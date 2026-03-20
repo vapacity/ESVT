@@ -55,15 +55,24 @@ def train_one_epoch(model, criterion, data_loader, optimizer, device, epoch, max
     scaler: GradScaler = kwargs.get('scaler', None)
     lr_warmup_scheduler: Warmup = kwargs.get('lr_warmup_scheduler', None)
 
+    # 🔥 Initialize status to None for first iteration and baseline mode
+    status = None
+
     for i, ((images, events, targets), indexes) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         images = images.to(device)
         events = events.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        if indexes[-1][-1] % 100 == 0:
+        # 🔥 Handle status for both baseline and ESVT modes
+        if indexes[-1][-1] % 100 == 0 or status is None:
             pre_status = None
         else:
-            pre_status = [(state[0].detach(), state[1].detach()) for state in status]
+            # Check if status contains valid states (not None)
+            if status and all(s is not None for s in status):
+                pre_status = [(state[0].detach(), state[1].detach()) for state in status]
+            else:
+                # Baseline mode: status is [None, None, None]
+                pre_status = None
 
         global_step = epoch * len(data_loader) + i
         metas = dict(epoch=epoch, step=i, global_step=global_step)
@@ -122,16 +131,25 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
     skipped_count = 0
     processed_count = 0
 
+    # 🔥 Initialize status to None for first iteration and baseline mode
+    status = None
+
     for (images, events, targets), indexes in metric_logger.log_every(data_loader, 10, header):
         batch_count += 1
         images = images.to(device)
         events = events.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        if indexes[-1][-1] % 100 == 0:
+        # 🔥 Handle status for both baseline and ESVT modes
+        if indexes[-1][-1] % 100 == 0 or status is None:
             pre_status = None
         else:
-            pre_status = [(state[0].detach(), state[1].detach()) for state in status]
+            # Check if status contains valid states (not None)
+            if status and all(s is not None for s in status):
+                pre_status = [(state[0].detach(), state[1].detach()) for state in status]
+            else:
+                # Baseline mode: status is [None, None, None]
+                pre_status = None
 
         outputs, _, status = model(events, targets=targets, pre_status=pre_status)
 
