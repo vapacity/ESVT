@@ -9,12 +9,18 @@ from models.ESVT.postprocessor.rtdetr_postprocessor import RTDETRPostProcessor
 
 
 def build_ESVT(args):
+    # 🔥 Check baseline mode
+    baseline_mode = getattr(args, 'baseline_mode', False)
+    streaming_type = args.streaming_type if not baseline_mode else 'none'
+
     if args.model_type == 'event':
 
         if args.backbone[:-1] == 'hgnetv2':
             return ESVT(
                 backbone=HGNetv2(name=args.backbone[-1], pretrained=args.backbone_pretrained),
-                encoder=HybridEncoder(name=args.transformer_scale[-1], streaming_type=args.streaming_type),
+                encoder=HybridEncoder(name=args.transformer_scale[-1],
+                                    streaming_type=streaming_type,
+                                    baseline_mode=baseline_mode),
                 decoder=RTDETRTransformerv2(name=args.transformer_scale[-1], dataset=args.dataset)
             )
 
@@ -22,7 +28,8 @@ def build_ESVT(args):
             return ESVT(
                 backbone=ResNet(name=args.backbone[-2:], pretrained=args.backbone_pretrained),
                 encoder=HybridEncoder(backbone_name=args.backbone[-2:], name=args.transformer_scale[-1],
-                                      streaming_type=args.streaming_type),
+                                      streaming_type=streaming_type,
+                                      baseline_mode=baseline_mode),
                 decoder=RTDETRTransformerv2(name=args.transformer_scale[-1], dataset=args.dataset)
             )
 

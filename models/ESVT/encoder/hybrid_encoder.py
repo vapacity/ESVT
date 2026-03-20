@@ -193,7 +193,8 @@ class HybridEncoder(nn.Module):
                  depth_mult=1.0,
                  act='silu',
                  eval_spatial_size=None,
-                 version='v2'):
+                 version='v2',
+                 baseline_mode=False):
         super().__init__()
 
         if name == 'X':
@@ -218,6 +219,7 @@ class HybridEncoder(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
+        self.baseline_mode = baseline_mode  # 🔥 Baseline mode flag
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -236,8 +238,10 @@ class HybridEncoder(nn.Module):
 
             self.input_proj.append(proj)
 
-        # lstm
-        if streaming_type == 'lstm':
+        # lstm - 🔥 Disable in baseline mode
+        if baseline_mode or streaming_type == 'none':
+            self.stm = None  # No streaming module in baseline mode
+        elif streaming_type == 'lstm':
             self.stm = DWSConvLSTM2d(dim=hidden_dim)
         # stc
         elif streaming_type == 'stc':
@@ -305,14 +309,19 @@ class HybridEncoder(nn.Module):
         assert len(feats) == len(self.in_channels)
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
 
-        # lstm
-        if pre_status is None:
-            pre_status = [None] * len(feats)
-        stm_status = [self.stm(proj_feat, pre_state) for proj_feat, pre_state in zip(proj_feats, pre_status)]
-        stm_feats, status = zip(*[(state[0], state) for state in stm_status])
-        stm_feats, status = list(proj_feats), list(status)
+        # lstm - 🔥 Baseline mode: skip temporal module
+        if self.baseline_mode or self.stm is None:
+            # Baseline mode: no temporal fusion, directly use projected features
+            stm_feats = proj_feats
+            status = [None] * len(feats)
+        else:
+            # ESVT mode: use temporal streaming module
+            if pre_status is None:
+                pre_status = [None] * len(feats)
+            stm_status = [self.stm(proj_feat, pre_state) for proj_feat, pre_state in zip(proj_feats, pre_status)]
+            stm_feats, status = zip(*[(state[0], state) for state in stm_status])
+            stm_feats, status = list(proj_feats), list(status)
 
-        # proj_feats = [proj_feat + lstm_feat for proj_feat, lstm_feat in zip(proj_feats, lstm_feats)]
         proj_feats = stm_feats
 
         # encoder
