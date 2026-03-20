@@ -42,7 +42,9 @@ def get_args_parser():
     # encoder和decoder
     parser.add_argument('--transformer_scale', default='hybrid_transformer_L', type=str,
                         choices=['hybrid_transformer_L', 'hybrid_transformer_X', 'hybrid_transformer_H'])
-    parser.add_argument('--streaming_type', default='lstm', type=str, choices=['stc', 'lstm'])
+    parser.add_argument('--streaming_type', default='lstm', type=str,
+                        choices=['none', 'stc', 'lstm', 'lstm_se', 'lstm_cbam', 'lstm_eca',
+                                 'lstm_spatial', 'lstm_se_after', 'lstm_cbam_both'])
     parser.add_argument('--num_top_queries', default=300, type=int)
 
     # 训练设备
@@ -114,6 +116,21 @@ def main(args):
     base_ds_val = TTC.target_to_coco_format(data_loader_val)
 
     model = build_model(args).to(device)
+
+    # 🔥 调试信息: 检查模型结构
+    print(f"\n{'='*80}")
+    print(f"[DEBUG] Model Configuration:")
+    print(f"  - streaming_type: {args.streaming_type}")
+    print(f"  - Encoder type: {type(model.encoder).__name__}")
+    if hasattr(model.encoder, 'stm') and model.encoder.stm is not None:
+        print(f"  - STM type: {type(model.encoder.stm).__name__}")
+        if hasattr(model.encoder.stm, 'attention_type'):
+            print(f"  - Attention type: {model.encoder.stm.attention_type}")
+            print(f"  - Attention position: {model.encoder.stm.attention_position}")
+    else:
+        print(f"  - STM: None (baseline mode)")
+    print(f"{'='*80}\n")
+
     ema = build_ema(model)
     criterion = build_criterion(args).to(device)
     postprocessor = build_postprocessor(args).to(device)

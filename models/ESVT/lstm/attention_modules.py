@@ -58,8 +58,8 @@ class ChannelAttention(nn.Module):
         y = self.avg_pool(x).view(b, c)
         # Excitation: [B,C] -> [B,C]
         y = self.fc(y).view(b, c, 1, 1)
-        # Scale: 原始特征 * 通道权重
-        return x * y.expand_as(x)
+        # Scale + 残差: 保证训练初期稳定性
+        return x + x * y.expand_as(x)
 
 
 class SpatialAttention(nn.Module):
@@ -100,17 +100,21 @@ class SpatialAttention(nn.Module):
         concat = torch.cat([avg_out, max_out], dim=1)
         # 7×7 卷积 + sigmoid
         attention = self.sigmoid(self.conv(concat))  # [B,1,H,W]
-        return x * attention
+        # Scale + 残差: 保证训练初期稳定性
+        return x + x * attention
 
 
 class CBAM(nn.Module):
     """
     CBAM: Convolutional Block Attention Module
-    结合通道注意力和空间注意力
+    结合通道注意力和空间注意力，带残差连接保证训练稳定性
 
     论文: Woo et al. "CBAM: Convolutional Block Attention Module" ECCV 2018
 
     顺序: 通道注意力 -> 空间注意力 (论文证明这个顺序更好)
+
+    注意: 加入残差连接 (x + attention(x))，避免训练初期注意力权重随机
+    导致特征大幅压缩，引发梯度不稳定
     """
     def __init__(self, channels, reduction=16, kernel_size=7):
         """
@@ -130,8 +134,9 @@ class CBAM(nn.Module):
         Returns:
             out: [B, C, H, W] (带 CBAM 注意力的特征)
         """
-        x = self.channel_attention(x)  # 通道注意力
-        x = self.spatial_attention(x)  # 空间注意力
+        # 残差连接: 注意力作为增量叠加到原始特征上
+        x = x + self.channel_attention(x)  # 通道注意力 + 残差
+        x = x + self.spatial_attention(x)  # 空间注意力 + 残差
         return x
 
 
@@ -173,8 +178,8 @@ class ECAAttention(nn.Module):
         y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
         # Sigmoid 生成权重
         y = self.sigmoid(y)
-        # 特征重标定
-        return x * y.expand_as(x)
+        # Scale + 残差: 保证训练初期稳定性
+        return x + x * y.expand_as(x)
 
 
 class DualAttention(nn.Module):
@@ -196,11 +201,10 @@ class DualAttention(nn.Module):
         Returns:
             out: [B, C, H, W]
         """
-        # 并行处理
+        # 并行处理后残差融合
         channel_out = self.channel_attention(x)
         spatial_out = self.spatial_attention(x)
-        # 融合 (可以用加法或者门控)
-        return channel_out + spatial_out
+        return x + channel_out + spatial_out
 
 
 # ============================================================
