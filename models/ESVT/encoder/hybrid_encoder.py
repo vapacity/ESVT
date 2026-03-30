@@ -308,7 +308,19 @@ class HybridEncoder(nn.Module):
     def forward(self, feats, pre_status=None):
         assert len(feats) == len(self.in_channels)
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
-
+        # 输入: feats = [f3, f4, f5]                                   
+        # f3: [4, 512, 56, 56]                                           
+        # f4: [4, 1024, 28, 28]                                          
+        # f5: [4, 2048, 14, 14]                                          
+                                                                        
+        # self.input_proj[0]: Conv2d(512 → 256)                          
+        # self.input_proj[1]: Conv2d(1024 → 256)                         
+        # self.input_proj[2]: Conv2d(2048 → 256)   
+        
+        # proj_feats[0] = self.input_proj[0](f3)  # [4, 256, 56, 56]       
+        # proj_feats[1] = self.input_proj[1](f4)  # [4, 256, 28, 28]       
+        # proj_feats[2] = self.input_proj[2](f5)  # [4, 256, 14, 14]  
+        
         # lstm - 🔥 Baseline mode: skip temporal module
         if self.baseline_mode or self.stm is None:
             # Baseline mode: no temporal fusion, directly use projected features
@@ -319,9 +331,19 @@ class HybridEncoder(nn.Module):
             if pre_status is None:
                 pre_status = [None] * len(feats)
             stm_status = [self.stm(proj_feat, pre_state) for proj_feat, pre_state in zip(proj_feats, pre_status)]
+            # i=0: proj_feat = [4, 256, 56, 56], pre_state = status3_t0  
+            # i=1: proj_feat = [4, 256, 28, 28], pre_state = status4_t0  
+            # i=2: proj_feat = [4, 256, 14, 14], pre_state = status5_t0  
+            # stm_status = [                                                 
+            #     (output3, status3_t1),  # 尺度3的输出和新状态            
+            #     (output4, status4_t1),  # 尺度4的输出和新状态              
+            #     (output5, status5_t1)   # 尺度5的输出和新状态              
+            # ]    
             stm_feats, status = zip(*[(state[0], state) for state in stm_status])
-            stm_feats, status = list(proj_feats), list(status)
-
+            # stm_feats = (output3, output4, output5)                      
+            # status = (status3_t1, status4_t1, status5_t1)     
+            stm_feats, status = list(stm_feats), list(status)   
+            
         proj_feats = stm_feats
 
         # encoder
