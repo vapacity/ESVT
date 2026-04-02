@@ -10,13 +10,9 @@ from models.ESVT.postprocessor.rtdetr_postprocessor import RTDETRPostProcessor
 
 
 def build_ESVT(args):
-    # 🔥 Check baseline mode
-    baseline_mode = getattr(args, 'baseline_mode', False)
-    streaming_type = args.streaming_type if not baseline_mode else 'none'
+    streaming_type = args.streaming_type
 
-    # 🔥 新增: 根据 streaming_type 自动选择 Encoder
-    # 如果是增强版变体 (lstm_se, lstm_cbam等), 使用 HybridEncoderEnhanced
-    # 否则使用原版 HybridEncoder
+    # Use the enhanced encoder only for explicit enhanced ConvLSTM variants.
     use_enhanced = streaming_type.startswith('lstm_') and streaming_type != 'lstm'
     EncoderClass = HybridEncoderEnhanced if use_enhanced else HybridEncoder
 
@@ -26,8 +22,7 @@ def build_ESVT(args):
             return ESVT(
                 backbone=HGNetv2(name=args.backbone[-1], pretrained=args.backbone_pretrained),
                 encoder=EncoderClass(name=args.transformer_scale[-1],
-                                    streaming_type=streaming_type,
-                                    baseline_mode=baseline_mode),
+                                    streaming_type=streaming_type),
                 decoder=RTDETRTransformerv2(name=args.transformer_scale[-1], dataset=args.dataset)
             )
 
@@ -35,8 +30,7 @@ def build_ESVT(args):
             return ESVT(
                 backbone=ResNet(name=args.backbone[-2:], pretrained=args.backbone_pretrained),
                 encoder=EncoderClass(backbone_name=args.backbone[-2:], name=args.transformer_scale[-1],
-                                      streaming_type=streaming_type,
-                                      baseline_mode=baseline_mode),
+                                      streaming_type=streaming_type),
                 decoder=RTDETRTransformerv2(name=args.transformer_scale[-1], dataset=args.dataset)
             )
 

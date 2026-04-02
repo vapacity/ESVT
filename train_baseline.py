@@ -1,6 +1,7 @@
 import argparse
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data import RandomSampler, SequentialSampler
 import dataset.UAV_EOD.samplers as samplers
 from dataset import build_dataset
 from models import build_model, build_criterion, build_postprocessor
@@ -30,14 +31,10 @@ def get_args_parser():
     parser.add_argument('--scales',
                         default=[480, 512, 544, 576, 608, 640, 640, 640, 672, 704, 736, 768, 800])
 
-    # 模型 - 使用ESVT但配置为baseline模式
+    # 模型
     parser.add_argument('--model', default='ESVT', type=str, choices=['ESVT', ])
     parser.add_argument('--model_type', default='event', type=str)
     parser.add_argument('--event_rep', default='voxel', type=str, choices=['voxel', ])
-
-    # 🔥 Baseline配置：禁用时序模块
-    parser.add_argument('--baseline_mode', default=True, type=bool,
-                        help='Enable baseline mode (disable temporal modules)')
 
     # backbone
     parser.add_argument('--backbone', default='resnet18', type=str, choices=['resnet18', 'resnet34', 'resnet50'])
@@ -47,8 +44,8 @@ def get_args_parser():
     parser.add_argument('--transformer_scale', default='hybrid_transformer_L', type=str,
                         choices=['hybrid_transformer_L', 'hybrid_transformer_X', 'hybrid_transformer_H'])
     parser.add_argument('--streaming_type', default='none', type=str,
-                        choices=['stc', 'lstm', 'none'],
-                        help='Streaming type: none for baseline mode')
+                        choices=['none'],
+                        help='RT-DETR baseline disables the streaming module')
     parser.add_argument('--num_top_queries', default=300, type=int)
 
     # 训练设备
@@ -83,10 +80,11 @@ def get_args_parser():
 
 def main(args):
     print("\n" + "="*80)
-    print("🎯 Running RT-DETR Baseline Mode")
+    print("RT-DETR Baseline")
     print("="*80)
-    print(f"Baseline Mode: {args.baseline_mode}")
-    print(f"Streaming Type: {args.streaming_type}")
+    print("Architecture: ResNet + HybridEncoder(no ConvLSTM/RevNorm) + RTDETRv2 Decoder")
+    print("Spatial module: RT-DETR hybrid encoder (not SBFPN / not BFPN)")
+    print(f"Streaming Type: {args.streaming_type} (disabled)")
     print(f"Dataset Path: {args.dataset_path}")
     print(f"Output Dir: {args.output_dir}")
     print("="*80 + "\n")
@@ -105,14 +103,9 @@ def main(args):
         sampler_train = samplers.DistributedSampler(dataset_train, args.batch_size)
         sampler_val = samplers.DistributedSampler(dataset_val, args.batch_size_val)
     else:
-        # Baseline模式使用随机采样，不使用streaming采样
-        if args.baseline_mode:
-            print("[INFO] Using RandomSampler for baseline mode")
-            sampler_train = torch.utils.data.RandomSampler(dataset_train)
-            sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-        else:
-            sampler_train = samplers.StreamingSampler(dataset_train, args.batch_size)
-            sampler_val = samplers.StreamingSampler(dataset_val, args.batch_size_val)
+        print("[INFO] Using RandomSampler/SequentialSampler for the baseline")
+        sampler_train = RandomSampler(dataset_train)
+        sampler_val = SequentialSampler(dataset_val)
 
     data_loader_train = DataLoader(dataset_train, args.batch_size, sampler=sampler_train, drop_last=True,
                                    num_workers=args.num_workers, pin_memory=True,

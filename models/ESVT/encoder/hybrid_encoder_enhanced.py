@@ -80,8 +80,7 @@ class HybridEncoderEnhanced(nn.Module):
                  depth_mult=1.0,
                  act='silu',
                  eval_spatial_size=None,
-                 version='v2',
-                 baseline_mode=False):
+                 version='v2'):
         super().__init__()
 
         if name == 'X':
@@ -106,7 +105,6 @@ class HybridEncoderEnhanced(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
-        self.baseline_mode = baseline_mode
         self.streaming_type = streaming_type  # 🔥 保存配置用于记录
 
         # channel projection (与原版完全相同)
@@ -127,7 +125,7 @@ class HybridEncoderEnhanced(nn.Module):
             self.input_proj.append(proj)
 
         # ===== 🔥 LSTM 模块选择 (修改部分) =====
-        self.stm = self._build_streaming_module(streaming_type, hidden_dim, baseline_mode)
+        self.stm = self._build_streaming_module(streaming_type, hidden_dim)
 
         # encoder transformer (与原版完全相同)
         encoder_layer = TransformerEncoderLayer(
@@ -163,19 +161,17 @@ class HybridEncoderEnhanced(nn.Module):
 
         self._reset_parameters()
 
-    def _build_streaming_module(self, streaming_type, hidden_dim, baseline_mode):
+    def _build_streaming_module(self, streaming_type, hidden_dim):
         """
         构建时序流模块
 
         Args:
             streaming_type: 流类型
             hidden_dim: 隐藏层维度
-            baseline_mode: 是否为 baseline 模式
-
         Returns:
             streaming module 或 None
         """
-        if baseline_mode or streaming_type == 'none':
+        if streaming_type == 'none':
             return None
 
         # 原始 ConvLSTM
@@ -241,7 +237,7 @@ class HybridEncoderEnhanced(nn.Module):
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
 
         # lstm
-        if self.baseline_mode or self.stm is None:
+        if self.stm is None:
             stm_feats = proj_feats
             status = [None] * len(feats)
         else:

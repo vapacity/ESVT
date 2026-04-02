@@ -193,8 +193,7 @@ class HybridEncoder(nn.Module):
                  depth_mult=1.0,
                  act='silu',
                  eval_spatial_size=None,
-                 version='v2',
-                 baseline_mode=False):
+                 version='v2'):
         super().__init__()
 
         if name == 'X':
@@ -219,7 +218,6 @@ class HybridEncoder(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.out_channels = [hidden_dim for _ in range(len(in_channels))]
         self.out_strides = feat_strides
-        self.baseline_mode = baseline_mode  # 🔥 Baseline mode flag
 
         # channel projection
         self.input_proj = nn.ModuleList()
@@ -238,9 +236,9 @@ class HybridEncoder(nn.Module):
 
             self.input_proj.append(proj)
 
-        # lstm - 🔥 Disable in baseline mode
-        if baseline_mode or streaming_type == 'none':
-            self.stm = None  # No streaming module in baseline mode
+        # Disable the streaming module for the RT-DETR-style baseline.
+        if streaming_type == 'none':
+            self.stm = None
         elif streaming_type == 'lstm':
             self.stm = DWSConvLSTM2d(dim=hidden_dim)
         # stc
@@ -321,27 +319,15 @@ class HybridEncoder(nn.Module):
         # proj_feats[1] = self.input_proj[1](f4)  # [4, 256, 28, 28]       
         # proj_feats[2] = self.input_proj[2](f5)  # [4, 256, 14, 14]  
         
-        # lstm - 🔥 Baseline mode: skip temporal module
-        if self.baseline_mode or self.stm is None:
-            # Baseline mode: no temporal fusion, directly use projected features
+        # Skip temporal fusion for the no-streaming baseline.
+        if self.stm is None:
             stm_feats = proj_feats
             status = [None] * len(feats)
         else:
-            # ESVT mode: use temporal streaming module
             if pre_status is None:
                 pre_status = [None] * len(feats)
             stm_status = [self.stm(proj_feat, pre_state) for proj_feat, pre_state in zip(proj_feats, pre_status)]
-            # i=0: proj_feat = [4, 256, 56, 56], pre_state = status3_t0  
-            # i=1: proj_feat = [4, 256, 28, 28], pre_state = status4_t0  
-            # i=2: proj_feat = [4, 256, 14, 14], pre_state = status5_t0  
-            # stm_status = [                                                 
-            #     (output3, status3_t1),  # 尺度3的输出和新状态            
-            #     (output4, status4_t1),  # 尺度4的输出和新状态              
-            #     (output5, status5_t1)   # 尺度5的输出和新状态              
-            # ]    
             stm_feats, status = zip(*[(state[0], state) for state in stm_status])
-            # stm_feats = (output3, output4, output5)                      
-            # status = (status3_t1, status4_t1, status5_t1)     
             stm_feats, status = list(stm_feats), list(status)   
             
         proj_feats = stm_feats
