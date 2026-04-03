@@ -139,6 +139,8 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
         images = images.to(device)
         events = events.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        target_keep = [bool(t) for t in targets]
+        global_img_ids = indexes[1]
 
         # 🔥 Handle status for both baseline and ESVT modes
         if indexes[-1][-1] % 100 == 0 or status is None:
@@ -151,7 +153,7 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
                 # Baseline mode: status is [None, None, None]
                 pre_status = None
 
-        outputs, _, status = model(events, targets=targets, pre_status=pre_status)
+        outputs, targets, status = model(events, targets=targets, pre_status=pre_status)
 
         if not check_empty_target(targets):
             skipped_count += 1
@@ -160,16 +162,16 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
             continue
         else:
             processed_count += 1
-            targets = check_target(targets)
             orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
             results = postprocessor(outputs, orig_target_sizes)
+            kept_global_img_ids = [img_id for img_id, keep in zip(global_img_ids, target_keep) if keep]
 
             for target in targets:
                 boxes = box_cxcywh_to_xyxy(target['boxes'])
                 orig_target_size = target['orig_size'].repeat(2)
                 target['boxes'] = boxes * orig_target_size
 
-            res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+            res = {img_id: output for img_id, output in zip(kept_global_img_ids, results)}
             if dvs_evaluator is not None:
                 dvs_evaluator.update(res)
 
