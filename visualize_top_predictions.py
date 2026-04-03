@@ -37,6 +37,11 @@ def get_args_parser():
     parser.add_argument('--output_dir', default='outputs/top_predictions', type=str)
     parser.add_argument('--top_k', default=10, type=int)
     parser.add_argument('--score_thresh', default=0.3, type=float)
+    parser.add_argument('--mode', default='top', choices=['top', 'worst', 'random'],
+                        help='Select best, worst, or random qualified samples')
+    parser.add_argument('--scene_filter', default='all', choices=['all', 'normal', 'low_light', 'motion_blur'],
+                        help='Filter samples by scene name in the file path')
+    parser.add_argument('--seed', default=42, type=int)
     return parser
 
 
@@ -80,20 +85,41 @@ def evaluate_image_quality(prediction, target, score_thresh: float):
     pred_scores = pred_scores[keep]
     gt_boxes = target['boxes']
     gt_labels = target['labels']
+    num_gt = int(gt_boxes.shape[0])
+    num_preds = int(pred_boxes.shape[0])
 
     ious, _ = box_iou(pred_boxes, gt_boxes)
     best_ious, gt_indices = ious.max(dim=1)
     label_match = pred_labels == gt_labels[gt_indices]
     matched_ious = best_ious[label_match]
+    matched_gt_indices = gt_indices[label_match]
 
     if matched_ious.numel() == 0:
         return None
 
+    unique_matched_gt = torch.unique(matched_gt_indices)
+    num_matches = int(matched_ious.numel())
+    num_gt_covered = int(unique_matched_gt.numel())
+    false_positives = max(num_preds - num_matches, 0)
+    false_negatives = max(num_gt - num_gt_covered, 0)
+    precision = num_matches / max(num_preds, 1)
+    recall = num_gt_covered / max(num_gt, 1)
+
     return {
         'mean_iou': matched_ious.mean().item(),
         'max_iou': matched_ious.max().item(),
-        'num_matches': int(matched_ious.numel()),
-        'num_preds': int(pred_boxes.shape[0]),
+        'min_iou': matched_ious.min().item(),
+        'num_matches': num_matches,
+        'num_gt': num_gt,
+        'num_gt_covered': num_gt_covered,
+        'num_preds': num_preds,
+        'false_positives': false_positives,
+        'false_negatives': false_negatives,
+        'precision': precision,
+        'recall': recall,
+        'score_mean': pred_scores.mean().item(),
+        'score_max': pred_scores.max().item(),
+        'score_min': pred_scores.min().item(),
         'pred_boxes': pred_boxes,
         'pred_labels': pred_labels,
         'pred_scores': pred_scores,
@@ -171,16 +197,49 @@ def main(args):
 
             ranked.append({
                 'global_idx': int(global_idx),
+                'scene': resolve_original_path(dataset_val, int(global_idx)).parts[-3],
+                'sequence': resolve_original_path(dataset_val, int(global_idx)).parts[-2],
                 'quality': quality,
                 'gt_boxes': gt_boxes.detach().cpu(),
                 'gt_labels': target['labels'].detach().cpu(),
             })
 
-    ranked.sort(key=lambda item: (item['quality']['mean_iou'], item['quality']['max_iou'], item['quality']['num_matches']),
-                reverse=True)
-    top_items = ranked[:args.top_k]
+    if args.scene_filter != 'all':
+        ranked = [
+            item for item in ranked
+            if f"/{args.scene_filter}/" in str(resolve_original_path(dataset_val, item['global_idx']))
+        ]
 
-    for rank, item in enumerate(top_items, start=1):
+    if args.mode == 'top':
+        ranked.sort(
+            key=lambda item: (
+                item['quality']['mean_iou'],
+                item['quality']['max_iou'],
+                item['quality']['num_matches'],
+                -item['quality']['num_preds'],
+            ),
+            reverse=True,
+        )
+        selected_items = ranked[:args.top_k]
+    elif args.mode == 'worst':
+        ranked.sort(
+            key=lambda item: (
+                item['quality']['mean_iou'],
+                item['quality']['max_iou'],
+                item['quality']['num_matches'],
+                -item['quality']['num_preds'],
+            )
+        )
+        selected_items = ranked[:args.top_k]
+    else:
+        rng = np.random.default_rng(args.seed)
+        if len(ranked) <= args.top_k:
+            selected_items = ranked
+        else:
+            indices = rng.choice(len(ranked), size=args.top_k, replace=False)
+            selected_items = [ranked[idx] for idx in indices]
+
+    for rank, item in enumerate(selected_items, start=1):
         original_path = resolve_original_path(dataset_val, item['global_idx'])
         image_bgr = cv2.imread(str(original_path))
         if image_bgr is None:
@@ -197,25 +256,44 @@ def main(args):
 
         stem = original_path.stem
         out_name = (
-            f"{rank:02d}_global{item['global_idx']:04d}_miou{item['quality']['mean_iou']:.3f}"
+            f"{rank:02d}_{args.mode}_global{item['global_idx']:04d}_miou{item['quality']['mean_iou']:.3f}"
             f"_{stem}.png"
         )
         cv2.imwrite(str(output_dir / out_name), image_bgr)
 
     summary_path = output_dir / 'summary.txt'
     with summary_path.open('w', encoding='utf-8') as f:
-        for rank, item in enumerate(top_items, start=1):
+        f.write(f"mode={args.mode} scene_filter={args.scene_filter} top_k={args.top_k} score_thresh={args.score_thresh}\n")
+        f.write(
+            "columns: rank global_idx scene sequence gt_count pred_count matched_pred matched_gt "
+            "fp fn precision recall mean_iou min_iou max_iou score_mean score_min score_max file\n"
+        )
+        for rank, item in enumerate(selected_items, start=1):
             original_path = resolve_original_path(dataset_val, item['global_idx'])
             f.write(
-                f"{rank:02d} global_idx={item['global_idx']} "
+                f"{rank:02d} "
+                f"global_idx={item['global_idx']} "
+                f"scene={item['scene']} "
+                f"sequence={item['sequence']} "
+                f"gt_count={item['quality']['num_gt']} "
+                f"pred_count={item['quality']['num_preds']} "
+                f"matched_pred={item['quality']['num_matches']} "
+                f"matched_gt={item['quality']['num_gt_covered']} "
+                f"fp={item['quality']['false_positives']} "
+                f"fn={item['quality']['false_negatives']} "
+                f"precision={item['quality']['precision']:.4f} "
+                f"recall={item['quality']['recall']:.4f} "
                 f"mean_iou={item['quality']['mean_iou']:.4f} "
+                f"min_iou={item['quality']['min_iou']:.4f} "
                 f"max_iou={item['quality']['max_iou']:.4f} "
-                f"matches={item['quality']['num_matches']} "
-                f"preds={item['quality']['num_preds']} "
+                f"score_mean={item['quality']['score_mean']:.4f} "
+                f"score_min={item['quality']['score_min']:.4f} "
+                f"score_max={item['quality']['score_max']:.4f} "
                 f"file={original_path}\n"
             )
 
-    print(f"Saved {len(top_items)} visualizations to {output_dir}")
+    print(f"Candidates after filtering: {len(ranked)}")
+    print(f"Saved {len(selected_items)} visualizations to {output_dir}")
     print(f"Summary written to {summary_path}")
 
 
