@@ -17,15 +17,9 @@ def check_x_target(x, targets):
     keep = [bool(d) for d in targets]
     if False in keep:
         x = [tensor[keep] for tensor in x]
-        if x[0].requires_grad:
-            targets = [d for d in targets if d]
-        else:
-            targets = None
+        targets = [d for d in targets if d]
     else:
-        if x[0].requires_grad:
-            return x, targets
-        else:
-            targets = None
+        return x, targets
 
     return x, targets
 
