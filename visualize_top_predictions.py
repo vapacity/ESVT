@@ -11,6 +11,7 @@ from dataset import build_dataset
 from dataset.UAV_EOD.collate_fn import BatchImageCollateFuncion
 from models import build_model, build_postprocessor
 from models.ESVT.box_ops import box_cxcywh_to_xyxy, box_iou
+from models.ESVT.utils import check_empty_target
 from util.misc import dist_utils
 from util.optim.ema import build_ema
 
@@ -29,6 +30,7 @@ def get_args_parser():
     parser.add_argument('--streaming_type', default='none', type=str)
     parser.add_argument('--num_top_queries', default=300, type=int)
     parser.add_argument('--use_focal_loss', default=True)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--batch_size_val', default=1, type=int)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--resume', required=True, type=str)
@@ -149,7 +151,7 @@ def main(args):
                 pre_status = None
 
         outputs, filtered_targets, status = model_for_eval(events, targets=targets, pre_status=pre_status)
-        if not filtered_targets:
+        if not check_empty_target(filtered_targets):
             continue
 
         kept_global_img_ids = [img_id for img_id, keep in zip(global_img_ids, target_keep) if keep]
