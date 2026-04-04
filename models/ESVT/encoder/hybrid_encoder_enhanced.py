@@ -175,7 +175,7 @@ class HybridEncoderEnhanced(nn.Module):
             return None
 
         # 原始 ConvLSTM
-        if streaming_type == 'lstm':
+        if streaming_type in ['lstm', 'lstm_true']:
             return DWSConvLSTM2d(dim=hidden_dim)
 
         # 增强版 ConvLSTM (带注意力)
