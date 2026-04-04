@@ -27,7 +27,9 @@ def get_args_parser():
     parser.add_argument('--backbone_pretrained', default=False)
     parser.add_argument('--transformer_scale', default='hybrid_transformer_L', type=str,
                         choices=['hybrid_transformer_L', 'hybrid_transformer_X', 'hybrid_transformer_H'])
-    parser.add_argument('--streaming_type', default='none', type=str)
+    parser.add_argument('--streaming_type', default='none', type=str,
+                        choices=['none', 'stc', 'lstm', 'lstm_true', 'lstm_se', 'lstm_cbam', 'lstm_eca',
+                                 'lstm_spatial', 'lstm_se_after', 'lstm_cbam_both'])
     parser.add_argument('--num_top_queries', default=300, type=int)
     parser.add_argument('--use_focal_loss', default=True)
     parser.add_argument('--batch_size', default=16, type=int)
