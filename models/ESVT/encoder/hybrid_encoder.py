@@ -239,11 +239,16 @@ class HybridEncoder(nn.Module):
         # Disable the streaming module for the RT-DETR-style baseline.
         if streaming_type == 'none':
             self.stm = None
+            self.use_stream_output = False
         elif streaming_type == 'lstm':
             self.stm = DWSConvLSTM2d(dim=hidden_dim)
+            # Preserve the original repository behavior for pretrained
+            # checkpoints trained with the legacy forward path.
+            self.use_stream_output = False
         # stc
         elif streaming_type == 'stc':
             self.stm = StreamingtemporalConv2d(dim=hidden_dim)
+            self.use_stream_output = True
 
         # encoder transformer
         encoder_layer = TransformerEncoderLayer(
@@ -328,8 +333,12 @@ class HybridEncoder(nn.Module):
                 pre_status = [None] * len(feats)
             stm_status = [self.stm(proj_feat, pre_state) for proj_feat, pre_state in zip(proj_feats, pre_status)]
             stm_feats, status = zip(*[(state[0], state) for state in stm_status])
-            stm_feats, status = list(stm_feats), list(status)   
-            
+            status = list(status)
+            if self.use_stream_output:
+                stm_feats = list(stm_feats)
+            else:
+                stm_feats = list(proj_feats)
+
         proj_feats = stm_feats
 
         # encoder

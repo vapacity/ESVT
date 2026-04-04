@@ -89,23 +89,46 @@ def evaluate_image_quality(prediction, target, score_thresh: float):
     num_preds = int(pred_boxes.shape[0])
 
     ious, _ = box_iou(pred_boxes, gt_boxes)
-    best_ious, gt_indices = ious.max(dim=1)
-    label_match = pred_labels == gt_labels[gt_indices]
-    matched_ious = best_ious[label_match]
-    matched_gt_indices = gt_indices[label_match]
 
-    if matched_ious.numel() == 0:
+    # Greedy one-to-one matching on IoU, constrained by label agreement.
+    candidates = []
+    for pred_idx in range(num_preds):
+        for gt_idx in range(num_gt):
+            if int(pred_labels[pred_idx]) != int(gt_labels[gt_idx]):
+                continue
+            candidates.append((float(ious[pred_idx, gt_idx]), pred_idx, gt_idx))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    used_preds = set()
+    used_gts = set()
+    matched_records = []
+    for iou_value, pred_idx, gt_idx in candidates:
+        if iou_value < 0.5:
+            break
+        if pred_idx in used_preds or gt_idx in used_gts:
+            continue
+        used_preds.add(pred_idx)
+        used_gts.add(gt_idx)
+        matched_records.append((iou_value, pred_idx, gt_idx))
+
+    if not matched_records:
         return None
 
-    unique_matched_gt = torch.unique(matched_gt_indices)
-    num_matches = int(matched_ious.numel())
-    num_gt_covered = int(unique_matched_gt.numel())
+    matched_ious = torch.tensor([m[0] for m in matched_records], dtype=pred_scores.dtype)
+    matched_pred_indices = torch.tensor([m[1] for m in matched_records], dtype=torch.long)
+    matched_gt_indices = torch.tensor([m[2] for m in matched_records], dtype=torch.long)
+
+    num_matches = int(len(matched_records))
+    num_gt_covered = int(len(used_gts))
     false_positives = max(num_preds - num_matches, 0)
     false_negatives = max(num_gt - num_gt_covered, 0)
     precision = num_matches / max(num_preds, 1)
     recall = num_gt_covered / max(num_gt, 1)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
 
     return {
+        'quality_score': 0.6 * f1 + 0.4 * float(matched_ious.mean().item()),
+        'f1': f1,
         'mean_iou': matched_ious.mean().item(),
         'max_iou': matched_ious.max().item(),
         'min_iou': matched_ious.min().item(),
@@ -123,6 +146,10 @@ def evaluate_image_quality(prediction, target, score_thresh: float):
         'pred_boxes': pred_boxes,
         'pred_labels': pred_labels,
         'pred_scores': pred_scores,
+        'matched_pred_boxes': pred_boxes[matched_pred_indices],
+        'matched_pred_labels': pred_labels[matched_pred_indices],
+        'matched_pred_scores': pred_scores[matched_pred_indices],
+        'matched_gt_indices': matched_gt_indices,
     }
 
 
@@ -213,10 +240,10 @@ def main(args):
     if args.mode == 'top':
         ranked.sort(
             key=lambda item: (
+                item['quality']['quality_score'],
+                item['quality']['f1'],
                 item['quality']['mean_iou'],
-                item['quality']['max_iou'],
-                item['quality']['num_matches'],
-                -item['quality']['num_preds'],
+                item['quality']['num_gt_covered'],
             ),
             reverse=True,
         )
@@ -224,10 +251,10 @@ def main(args):
     elif args.mode == 'worst':
         ranked.sort(
             key=lambda item: (
+                item['quality']['quality_score'],
+                item['quality']['f1'],
                 item['quality']['mean_iou'],
-                item['quality']['max_iou'],
-                item['quality']['num_matches'],
-                -item['quality']['num_preds'],
+                item['quality']['num_gt_covered'],
             )
         )
         selected_items = ranked[:args.top_k]
@@ -266,7 +293,7 @@ def main(args):
         f.write(f"mode={args.mode} scene_filter={args.scene_filter} top_k={args.top_k} score_thresh={args.score_thresh}\n")
         f.write(
             "columns: rank global_idx scene sequence gt_count pred_count matched_pred matched_gt "
-            "fp fn precision recall mean_iou min_iou max_iou score_mean score_min score_max file\n"
+            "fp fn precision recall f1 quality_score mean_iou min_iou max_iou score_mean score_min score_max file\n"
         )
         for rank, item in enumerate(selected_items, start=1):
             original_path = resolve_original_path(dataset_val, item['global_idx'])
@@ -283,6 +310,8 @@ def main(args):
                 f"fn={item['quality']['false_negatives']} "
                 f"precision={item['quality']['precision']:.4f} "
                 f"recall={item['quality']['recall']:.4f} "
+                f"f1={item['quality']['f1']:.4f} "
+                f"quality_score={item['quality']['quality_score']:.4f} "
                 f"mean_iou={item['quality']['mean_iou']:.4f} "
                 f"min_iou={item['quality']['min_iou']:.4f} "
                 f"max_iou={item['quality']['max_iou']:.4f} "
