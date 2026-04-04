@@ -245,10 +245,15 @@ class HybridEncoder(nn.Module):
             # Preserve the original repository behavior for pretrained
             # checkpoints trained with the legacy forward path.
             self.use_stream_output = False
+        elif streaming_type == 'lstm_true':
+            self.stm = DWSConvLSTM2d(dim=hidden_dim)
+            self.use_stream_output = True
         # stc
         elif streaming_type == 'stc':
             self.stm = StreamingtemporalConv2d(dim=hidden_dim)
             self.use_stream_output = True
+        else:
+            raise NotImplementedError('{} is not supported'.format(streaming_type))
 
         # encoder transformer
         encoder_layer = TransformerEncoderLayer(

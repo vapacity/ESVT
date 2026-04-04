@@ -12,8 +12,9 @@ from models.ESVT.postprocessor.rtdetr_postprocessor import RTDETRPostProcessor
 def build_ESVT(args):
     streaming_type = args.streaming_type
 
-    # Use the enhanced encoder for explicit ConvLSTM-output variants.
-    use_enhanced = streaming_type == 'lstm_true' or (streaming_type.startswith('lstm_') and streaming_type != 'lstm')
+    # Keep lstm_true on the original encoder path. Only explicit attention
+    # variants use the enhanced encoder.
+    use_enhanced = streaming_type.startswith('lstm_') and streaming_type not in ['lstm', 'lstm_true']
     EncoderClass = HybridEncoderEnhanced if use_enhanced else HybridEncoder
 
     if args.model_type == 'event':
