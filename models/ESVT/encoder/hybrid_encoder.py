@@ -340,7 +340,8 @@ class HybridEncoder(nn.Module):
             stm_feats, status = zip(*[(state[0], state) for state in stm_status])
             status = list(status)
             if self.use_stream_output:
-                stm_feats = list(stm_feats)
+                # Residual: backbone features + temporal features
+                stm_feats = [p + s for p, s in zip(proj_feats, stm_feats)]
             else:
                 stm_feats = list(proj_feats)
 
