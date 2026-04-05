@@ -114,8 +114,16 @@ def train_one_epoch(model, criterion, data_loader, optimizer, device, epoch, max
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
+def _open_eval_debug_log(output_dir):
+    """Open (or create) the evaluation debug log file."""
+    log_path = Path(output_dir) / 'eval_debug.log' if output_dir else Path('eval_debug.log')
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    return open(log_path, 'a')
+
+
 @torch.no_grad()
-def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_types):
+def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_types,
+             output_dir=None):
     model.eval()
     criterion.eval()
 
@@ -123,13 +131,28 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
     metric_logger = MetricLogger(delimiter="  ")
     header = 'Test:'
 
-    # Debug: 检查数据加载器
-    print(f"[DEBUG] Evaluation dataloader length: {len(data_loader)}")
-    print(f"[DEBUG] Evaluation dataset size: {len(data_loader.dataset)}")
+    dbg = _open_eval_debug_log(output_dir)
+    dbg.write(f"\n{'='*60}\n")
+    dbg.write(f"Evaluation started at {datetime.datetime.now().isoformat()}\n")
+    dbg.write(f"Dataloader length: {len(data_loader)}\n")
+    dbg.write(f"Dataset size: {len(data_loader.dataset)}\n")
+
+    # Dump a sample of GT image_ids from base_ds
+    gt_img_ids = sorted(list(base_ds.imgs.keys()))
+    dbg.write(f"GT total images: {len(gt_img_ids)}\n")
+    dbg.write(f"GT img_id range: [{min(gt_img_ids)}, {max(gt_img_ids)}]\n")
+    dbg.write(f"GT img_ids (first 30): {gt_img_ids[:30]}\n")
+
+    # Dump GT category info
+    gt_cat_ids = sorted(list(base_ds.cats.keys()))
+    dbg.write(f"GT category_ids: {gt_cat_ids}\n")
+    for cid in gt_cat_ids:
+        dbg.write(f"  cat {cid}: {base_ds.cats[cid]}\n")
 
     batch_count = 0
     skipped_count = 0
     processed_count = 0
+    id_mismatch_count = 0
 
     # 🔥 Initialize status to None for first iteration and baseline mode
     status = None
@@ -146,19 +169,17 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
         if indexes[-1][-1] % 100 == 0 or status is None:
             pre_status = None
         else:
-            # Check if status contains valid states (not None)
             if status and all(s is not None for s in status):
                 pre_status = [(state[0].detach(), state[1].detach()) for state in status]
             else:
-                # Baseline mode: status is [None, None, None]
                 pre_status = None
 
         outputs, targets, status = model(events, targets=targets, pre_status=pre_status)
 
         if not check_empty_target(targets):
             skipped_count += 1
-            if batch_count <= 5:  # 只打印前5次
-                print(f"[DEBUG] Batch {batch_count}: Skipping due to empty targets")
+            if batch_count <= 10:
+                dbg.write(f"[batch {batch_count}] SKIPPED: all targets empty\n")
             continue
         else:
             processed_count += 1
@@ -172,14 +193,61 @@ def evaluate(model, criterion, postprocessor, data_loader, base_ds, device, iou_
                 target['boxes'] = boxes * orig_target_size
 
             res = {img_id: output for img_id, output in zip(kept_global_img_ids, results)}
+
+            # --- Debug: detailed logging for first 20 processed batches ---
+            if processed_count <= 20:
+                dbg.write(f"\n[batch {batch_count}, processed #{processed_count}]\n")
+                dbg.write(f"  indexes[0] (dataset_idx): {indexes[0]}\n")
+                dbg.write(f"  indexes[1] (global_idx):  {list(global_img_ids)}\n")
+                dbg.write(f"  target_keep:              {target_keep}\n")
+                dbg.write(f"  kept_global_img_ids:      {kept_global_img_ids}\n")
+                dbg.write(f"  #results: {len(results)}, #kept_ids: {len(kept_global_img_ids)}\n")
+
+                # Check id presence in GT
+                for img_id in kept_global_img_ids:
+                    in_gt = img_id in base_ds.imgs
+                    if not in_gt:
+                        id_mismatch_count += 1
+                    dbg.write(f"  img_id={img_id} in GT: {in_gt}\n")
+
+                # Log prediction quality
+                for img_id, output in res.items():
+                    scores = output['scores']
+                    labels = output['labels']
+                    n_high = (scores > 0.3).sum().item()
+                    n_mid = (scores > 0.1).sum().item()
+                    max_score = scores.max().item() if len(scores) > 0 else 0.0
+                    top5_scores = scores[:5].tolist()
+                    top5_labels = labels[:5].tolist()
+                    dbg.write(f"  pred img_id={img_id}: max_score={max_score:.4f}, "
+                              f"#(>0.3)={n_high}, #(>0.1)={n_mid}, "
+                              f"top5_scores={[f'{s:.3f}' for s in top5_scores]}, "
+                              f"top5_labels={top5_labels}\n")
+
+                # Log GT annotations for these images
+                for img_id in kept_global_img_ids:
+                    ann_ids = base_ds.getAnnIds(imgIds=[img_id])
+                    anns = base_ds.loadAnns(ann_ids)
+                    dbg.write(f"  GT img_id={img_id}: {len(anns)} annotations\n")
+                    for ann in anns[:5]:
+                        dbg.write(f"    cat_id={ann['category_id']}, bbox={ann['bbox']}, "
+                                  f"area={ann.get('area', 'N/A')}\n")
+
             if dvs_evaluator is not None:
                 dvs_evaluator.update(res)
 
-    # Debug: 打印统计
-    print(f"[DEBUG] Evaluation summary:")
-    print(f"[DEBUG]   Total batches: {batch_count}")
-    print(f"[DEBUG]   Skipped batches: {skipped_count}")
-    print(f"[DEBUG]   Processed batches: {processed_count}")
+    # --- Summary ---
+    dbg.write(f"\n{'='*60}\n")
+    dbg.write(f"Evaluation summary:\n")
+    dbg.write(f"  Total batches: {batch_count}\n")
+    dbg.write(f"  Skipped batches (empty targets): {skipped_count}\n")
+    dbg.write(f"  Processed batches: {processed_count}\n")
+    dbg.write(f"  ID mismatches (pred id not in GT): {id_mismatch_count}\n")
+    dbg.write(f"  Total GT images: {len(gt_img_ids)}\n")
+    dbg.write(f"  Total pred images submitted: {len(dvs_evaluator.img_ids)}\n")
+    dbg.write(f"  Pred img_id range: [{min(dvs_evaluator.img_ids)}, {max(dvs_evaluator.img_ids)}] "
+              f"(if non-empty)\n" if dvs_evaluator.img_ids else "  Pred img_ids: EMPTY\n")
+    dbg.close()
 
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -307,7 +375,8 @@ class Detection(object):
                 self.val_dataloader,
                 self.base_ds,
                 self.device,
-                iou_types=['bbox']
+                iou_types=['bbox'],
+                output_dir=self.output_dir
             )
 
             for k in test_stats:
@@ -357,7 +426,8 @@ class Detection(object):
             self.val_dataloader,
             self.base_ds,
             self.device,
-            iou_types=['bbox']
+            iou_types=['bbox'],
+            output_dir=self.output_dir
         )
         if self.output_dir:
             dist_utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, self.output_dir / "eval.pth")
