@@ -1,0 +1,53 @@
+task: detection
+
+num_classes: 5
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: UAVEODDetection
+    img_folder: /path/to/UAV-EOD/train/images      # Change to your path
+    event_folder: /path/to/UAV-EOD/train/events    # Change to your path
+    ann_folder: /path/to/UAV-EOD/train/labels      # Change to your path
+    num_bins: 3
+    use_aps: False   # True: use APS frames, False: use voxel grid
+    transforms:
+      type: Compose
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBox, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640]}
+        - {type: ToImageTensor}
+        - {type: ConvertDtype}
+        - {type: SanitizeBoundingBox, min_size: 1}
+        - {type: ConvertBox, out_fmt: 'cxcywh', normalize: True}
+  shuffle: True
+  batch_size: 8
+  num_workers: 4
+  drop_last: True
+  collate_fn: default_collate_fn
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: UAVEODDetection
+    img_folder: /path/to/UAV-EOD/val/images        # Change to your path
+    event_folder: /path/to/UAV-EOD/val/events      # Change to your path
+    ann_folder: /path/to/UAV-EOD/val/labels        # Change to your path
+    num_bins: 3
+    use_aps: False
+    transforms:
+      type: Compose
+      ops:
+        - {type: Resize, size: [640, 640]}
+        - {type: ToImageTensor}
+        - {type: ConvertDtype}
+  shuffle: False
+  batch_size: 8
+  num_workers: 4
+  drop_last: False
+  collate_fn: default_collate_fn

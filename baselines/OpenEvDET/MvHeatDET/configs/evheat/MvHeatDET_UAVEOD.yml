@@ -1,0 +1,15 @@
+__include__: [
+  '../dataset/UAVEOD_detection.yml',
+  '../runtime.yml',
+  './include/dataloader.yml',
+  './include/optimizer.yml',
+  './include/mvheatdet.yml',
+]
+
+output_dir: ./output/mvheatdet_uaveod
+
+# Override num_classes for UAV-EOD (5 classes vs original 10)
+num_classes: 5
+
+MvHeat_DET:
+  num_classes: 5
